@@ -20,6 +20,7 @@ import static com.android.internal.telephony.RILConstants.*;
 import static com.android.internal.util.Preconditions.checkNotNull;
 
 import android.content.Context;
+import android.content.res.Resources;
 import android.hardware.radio.V1_0.Carrier;
 import android.hardware.radio.V1_0.CarrierRestrictions;
 import android.hardware.radio.V1_0.CdmaBroadcastSmsConfigInfo;
@@ -71,6 +72,7 @@ import android.os.SystemProperties;
 import android.os.WorkSource;
 import android.service.carrier.CarrierIdentifier;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
+import android.telephony.CarrierConfigManager;
 import android.telephony.CellIdentity;
 import android.telephony.CellIdentityCdma;
 import android.telephony.CellInfo;
@@ -118,6 +120,18 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static android.telephony.TelephonyManager.NETWORK_TYPE_UNKNOWN;
+import static android.telephony.TelephonyManager.NETWORK_TYPE_GPRS;
+import static android.telephony.TelephonyManager.NETWORK_TYPE_EDGE;
+import static android.telephony.TelephonyManager.NETWORK_TYPE_UMTS;
+import static android.telephony.TelephonyManager.NETWORK_TYPE_HSDPA;
+import static android.telephony.TelephonyManager.NETWORK_TYPE_HSUPA;
+import static android.telephony.TelephonyManager.NETWORK_TYPE_HSPA;
+import static android.telephony.TelephonyManager.NETWORK_TYPE_LTE;
+import static android.telephony.TelephonyManager.NETWORK_TYPE_HSPAP;
+import static android.telephony.TelephonyManager.NETWORK_TYPE_GSM;
+import static android.telephony.TelephonyManager.NETWORK_TYPE_LTE_CA;
 
 /**
  * RIL implementation of the CommandsInterface.
@@ -196,6 +210,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
     final RadioProxyDeathRecipient mRadioProxyDeathRecipient;
     final RilHandler mRilHandler;
 
+    private static RIL sRil;
+    private static int[][] sSignalCust;
+    
     //***** Events
     static final int EVENT_WAKE_LOCK_TIMEOUT    = 2;
     static final int EVENT_ACK_WAKE_LOCK_TIMEOUT    = 4;
@@ -471,6 +488,49 @@ public class RIL extends BaseCommands implements CommandsInterface {
         mRilHandler = new RilHandler();
         mRadioProxyDeathRecipient = new RadioProxyDeathRecipient();
 
+        sRil = this;
+
+        // Create custom signal strength thresholds based on Huawei's
+        if (sSignalCust == null) {
+            final int THRESHOLDS = 4;
+            final int STEPS = THRESHOLDS - 1;
+            sSignalCust = new int[3][THRESHOLDS];
+            String[][] hwSignalCust = {
+                   SystemProperties.get("gsm.sigcust.gsm",
+                           "5,false,-109,-103,-97,-91,-85").split(","),
+                   SystemProperties.get("gsm.sigcust.lte",
+                           "5,false,-120,-115,-110,-105,-97").split(","),
+                   SystemProperties.get("gsm.sigcust.umts",
+                           "5,false,-112,-105,-99,-93,-87").split(",")
+            };
+            for (int i = 0; i < sSignalCust.length; i++) {
+                // Get the highest and the lowest dBm values
+                int max = Integer.parseInt(hwSignalCust[i][hwSignalCust[i].length - 1]);
+                int min = Integer.parseInt(hwSignalCust[i][hwSignalCust[i].length -
+                        Integer.parseInt(hwSignalCust[i][0])]);
+                // Default distance between thresholds
+                int step = (max - min) / STEPS;
+                // Extra distance that needs to be accounted for
+                int rem = (max - min) % STEPS;
+
+                // Fill the array with the basic step distance
+                for (int j = 0; j < sSignalCust[i].length; j++) {
+                    sSignalCust[i][j] = min + step * j;
+                }
+
+                // Make the max line up
+                sSignalCust[i][sSignalCust[i].length - 1] += rem;
+
+                // Distribute the remainder
+                int j = sSignalCust[i].length - 2;
+                while (rem > 0 && j > 0) {
+                    sSignalCust[i][j]++;
+                    j--;
+                    rem--;
+                }
+            }
+        }
+        
         PowerManager pm = (PowerManager)context.getSystemService(Context.POWER_SERVICE);
         mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, RILJ_WAKELOCK_TAG);
         mWakeLock.setReferenceCounted(false);
@@ -5524,10 +5584,159 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return response;
     }
 
+    static SignalStrength convertHalSignalStrengthHuawei(
+            android.hardware.radio.V1_0.SignalStrength signalStrength, int phoneId) {
+        int gsmSignalStrength = signalStrength.gw.signalStrength;
+        int gsmBitErrorRate = signalStrength.gw.bitErrorRate;
+        int cdmaDbm = signalStrength.cdma.dbm;
+        int cdmaEcio = signalStrength.cdma.ecio;
+        int evdoDbm = signalStrength.evdo.dbm;
+        int evdoEcio = signalStrength.evdo.ecio;
+        int evdoSnr = signalStrength.evdo.signalNoiseRatio;
+        int lteSignalStrength = signalStrength.lte.signalStrength;
+        int lteRsrp = signalStrength.lte.rsrp;
+        int lteRsrq = signalStrength.lte.rsrq;
+        int lteRssnr = signalStrength.lte.rssnr;
+        int lteCqi = signalStrength.lte.cqi;
+
+        int tdscdmaRscp_1_2 = 255; // 255 is the value for unknown/unreported ASU.
+        // The HAL 1.0 range is 25..120; the ASU/ HAL 1.2 range is 0..96;
+        // yes, this means the range in 1.0 cannot express -24dBm = 96
+        if (signalStrength.tdScdma.rscp >= 25 && signalStrength.tdScdma.rscp <= 120) {
+            // First we flip the sign to convert from the HALs -rscp to the actual RSCP value.
+            int rscpDbm = -signalStrength.tdScdma.rscp;
+            // Then to convert from RSCP to ASU, we apply the offset which aligns 0 ASU to -120dBm.
+            tdscdmaRscp_1_2 = rscpDbm + 120;
+        }
+
+        TelephonyManager tm = (TelephonyManager)
+                sRil.mContext.getSystemService(Context.TELEPHONY_SERVICE);
+        int radioTech = tm.getDataNetworkType(phoneId);
+
+        if (radioTech == NETWORK_TYPE_UNKNOWN) {
+            radioTech = tm.getVoiceNetworkType(phoneId);
+        }
+
+        int[] threshRsrp = CarrierConfigManager.getDefaultConfig().getIntArray(
+                CarrierConfigManager.KEY_LTE_RSRP_THRESHOLDS_INT_ARRAY);
+
+         if (sSignalCust != null && threshRsrp.length == 4) {
+            switch (radioTech) {
+                case NETWORK_TYPE_LTE_CA:
+                case NETWORK_TYPE_LTE:
+                    if (lteRsrp > -44) { // None or Unknown
+                        lteRsrp = -43;
+                        lteRssnr = 301;
+                        lteSignalStrength = 99;
+                    } else if (lteRsrp >= sSignalCust[1][3]) { // Great
+                        lteRsrp = threshRsrp[3];
+                        lteRssnr = 130;
+                        lteSignalStrength = 12;
+                    } else if (lteRsrp >= sSignalCust[1][2]) { // Good
+                        lteRsrp = threshRsrp[2];
+                        lteRssnr = 45;
+                        lteSignalStrength = 8;
+                    } else if (lteRsrp >= sSignalCust[1][1]) { // Moderate
+                        lteRsrp = threshRsrp[1];
+                        lteRssnr = 10;
+                        lteSignalStrength = 5;
+                    } else if (lteRsrp >= sSignalCust[1][0]) { // Poor
+                        lteRsrp = threshRsrp[0];
+                        lteRssnr = -30;
+                        lteSignalStrength = 0;
+                    } else { // None or Unknown
+                        lteRsrp = -140;
+                        lteRssnr = -200;
+                        lteSignalStrength = 99;
+                    }
+                    break;
+                case NETWORK_TYPE_HSPAP:
+                case NETWORK_TYPE_HSPA:
+                case NETWORK_TYPE_HSUPA:
+                case NETWORK_TYPE_HSDPA:
+                case NETWORK_TYPE_UMTS:
+                    lteRsrp = (gsmSignalStrength & 0xFF) - 256;
+                    if (lteRsrp > -20) { // None or Unknown
+                        lteRsrp = -43;
+                        lteRssnr = 301;
+                        lteSignalStrength = 99;
+                    } else if (lteRsrp >= sSignalCust[2][3]) { // Great
+                        lteRsrp = threshRsrp[3];
+                        lteRssnr = 130;
+                        lteSignalStrength = 12;
+                    } else if (lteRsrp >= sSignalCust[2][2]) { // Good
+                        lteRsrp = threshRsrp[2];
+                        lteRssnr = 45;
+                        lteSignalStrength = 8;
+                    } else if (lteRsrp >= sSignalCust[2][1]) { // Moderate
+                        lteRsrp = threshRsrp[1];
+                        lteRssnr = 10;
+                        lteSignalStrength = 5;
+                    } else if (lteRsrp >= sSignalCust[2][0]) { // Poor
+                        lteRsrp = threshRsrp[0];
+                        lteRssnr = -30;
+                        lteSignalStrength = 0;
+                    } else { // None or Unknown
+                        lteRsrp = -140;
+                        lteRssnr = -200;
+                        lteSignalStrength = 99;
+                    }
+                    break;
+                default:
+                    lteRsrp = (gsmSignalStrength & 0xFF) - 256;
+                    if (lteRsrp > -20) { // None or Unknown
+                        lteRsrp = -43;
+                        lteRssnr = 301;
+                        lteSignalStrength = 99;
+                    } else if (lteRsrp >= sSignalCust[0][3]) { // Great
+                        lteRsrp = threshRsrp[3];
+                        lteRssnr = 130;
+                        lteSignalStrength = 12;
+                    } else if (lteRsrp >= sSignalCust[0][2]) { // Good
+                        lteRsrp = threshRsrp[2];
+                        lteRssnr = 45;
+                        lteSignalStrength = 8;
+                    } else if (lteRsrp >= sSignalCust[0][1]) { // Moderate
+                        lteRsrp = threshRsrp[1];
+                        lteRssnr = 10;
+                        lteSignalStrength = 5;
+                    } else if (lteRsrp >= sSignalCust[0][0]) { // Poor
+                        lteRsrp = threshRsrp[0];
+                        lteRssnr = -30;
+                        lteSignalStrength = 0;
+                    } else { // None or Unknown
+                        lteRsrp = -140;
+                        lteRssnr = -200;
+                        lteSignalStrength = 99;
+                    }
+            }
+        }
+
+        return new SignalStrength(gsmSignalStrength,
+                gsmSignalStrength,
+                cdmaDbm,
+                cdmaEcio,
+                evdoDbm,
+                evdoEcio,
+                evdoSnr,
+                lteSignalStrength,
+                lteRsrp,
+                lteRsrq,
+                lteRssnr,
+                lteCqi,
+                tdscdmaRscp_1_2);
+    }
+    
     /** Convert HAL 1.0 Signal Strength to android SignalStrength */
     @VisibleForTesting
     public static SignalStrength convertHalSignalStrength(
-            android.hardware.radio.V1_0.SignalStrength signalStrength) {
+         android.hardware.radio.V1_0.SignalStrength signalStrength, int phoneId) {
+	Boolean prop = android.os.SystemProperties.getBoolean("persist.sys.radio.huawei", false);
+
+        if (prop && phoneId >= 0) {
+            return convertHalSignalStrengthHuawei(signalStrength, phoneId);
+        }
+        
         int tdscdmaRscp_1_2 = 255; // 255 is the value for unknown/unreported ASU.
         // The HAL 1.0 range is 25..120; the ASU/ HAL 1.2 range is 0..96;
         // yes, this means the range in 1.0 cannot express -24dBm = 96
@@ -5553,6 +5762,11 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 tdscdmaRscp_1_2);
     }
 
+    static SignalStrength convertHalSignalStrength(
+            android.hardware.radio.V1_0.SignalStrength signalStrength) {
+        return convertHalSignalStrength(signalStrength, -1);
+    }
+    
     /** Convert HAL 1.2 Signal Strength to android SignalStrength */
     @VisibleForTesting
     public static SignalStrength convertHalSignalStrength_1_2(
