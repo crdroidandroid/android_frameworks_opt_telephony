@@ -78,7 +78,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     public final Handler mInternalHandler;
 
 
-    public TelephonyNetworkFactory(Looper looper, Phone phone) {
+    public TelephonyNetworkFactory(Looper looper, Phone phone, PhoneSwitcher phoneSwitcher) {
         super(looper, phone.getContext(), "TelephonyNetworkFactory[" + phone.getPhoneId()
                 + "]", null);
         mPhone = phone;
@@ -89,7 +89,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         setCapabilityFilter(makeNetworkFilterByPhoneId(mPhone.getPhoneId()));
         setScoreFilter(TELEPHONY_NETWORK_SCORE);
 
-        mPhoneSwitcher = PhoneSwitcher.getInstance();
+        mPhoneSwitcher = phoneSwitcher;
         LOG_TAG = "TelephonyNetworkFactory[" + mPhone.getPhoneId() + "]";
 
         mPhoneSwitcher.registerForActivePhoneSwitch(mInternalHandler, EVENT_ACTIVE_PHONE_SWITCH,
