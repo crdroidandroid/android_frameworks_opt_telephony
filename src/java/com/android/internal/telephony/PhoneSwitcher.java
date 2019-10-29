@@ -657,6 +657,19 @@ public class PhoneSwitcher extends Handler {
         }
     }
 
+    protected boolean isEmergency() {
+        if (isInEmergencyCallbackMode()) return true;
+        for (Phone p : PhoneFactory.getPhones()) {
+            if (p == null) continue;
+            if (p.isInEmergencyCall()) return true;
+            Phone imsPhone = p.getImsPhone();
+            if (imsPhone != null && imsPhone.isInEmergencyCall()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private boolean isInEmergencyCallbackMode() {
         for (Phone p : PhoneFactory.getPhones()) {
             if (p == null) continue;
