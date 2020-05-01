@@ -5726,7 +5726,7 @@ public class ServiceStateTracker extends Handler {
             return;
         }
         for (CellInfo cellInfo : cellInfos) {
-            if (cellInfo.isRegistered()) {
+            if (cellInfo != null && cellInfo.isRegistered()) {
                 updateOperatorNameForCellIdentity(cellInfo.getCellIdentity());
             }
         }
