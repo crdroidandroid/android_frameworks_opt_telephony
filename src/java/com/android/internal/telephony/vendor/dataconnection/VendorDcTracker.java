@@ -22,6 +22,7 @@ import android.telephony.DataFailCause;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
+import android.text.TextUtils;
 import android.view.WindowManager;
 
 import com.android.internal.telephony.DctConstants;
@@ -123,10 +124,42 @@ public class VendorDcTracker extends DcTracker {
             RetryFailures retryFailures) {
         if (mPhone.getContext().getResources().getBoolean(
                 com.android.internal.R.bool.config_pdp_reject_enable_retry) &&
-                mDataRejectCount > 0) {
+                mDataRejectCount > 0 &&
+                TextUtils.equals(apnContext.getApnType(), PhoneConstants.APN_TYPE_DEFAULT)) {
             log("setupDataOnConnectableApn: data retry in progress, skip processing");
         } else {
             super.setupDataOnConnectableApn(apnContext, reason, retryFailures);
+        }
+    }
+
+    @Override
+    protected void cleanUpConnectionInternal(boolean detach, @ReleaseNetworkType int releaseType,
+            ApnContext apnContext) {
+        if (apnContext == null) {
+            if (DBG) log("cleanUpConnectionInternal: apn context is null");
+            return;
+        }
+
+        if (mPhone.getContext().getResources().getBoolean(
+                 com.android.internal.R.bool.config_pdp_reject_enable_retry) &&
+                 mDataRejectCount > 0 &&
+                 TextUtils.equals(apnContext.getApnType(), PhoneConstants.APN_TYPE_DEFAULT)) {
+            log("cleanUpConnectionInternal: data retry in progress, skip cleanup");
+        } else {
+            super.cleanUpConnectionInternal(detach, releaseType, apnContext);
+        }
+    }
+
+    @Override
+    protected boolean retryAfterDisconnected(ApnContext apnContext) {
+        if (mPhone.getContext().getResources().getBoolean(
+                com.android.internal.R.bool.config_pdp_reject_enable_retry) &&
+                mDataRejectCount > 0 &&
+                TextUtils.equals(apnContext.getApnType(), PhoneConstants.APN_TYPE_DEFAULT)) {
+            log("retryAfterDisconnected: data retry in progress, skip this retry");
+            return false;
+        } else {
+            return super.retryAfterDisconnected(apnContext);
         }
     }
 
@@ -136,7 +169,8 @@ public class VendorDcTracker extends DcTracker {
         boolean isPdpRejectConfigEnabled = mPhone.getContext().getResources().getBoolean(
                 com.android.internal.R.bool.config_pdp_reject_enable_retry);
         if (success) {
-            if (isPdpRejectConfigEnabled) {
+            if (isPdpRejectConfigEnabled &&
+                    TextUtils.equals(apnContext.getApnType(), PhoneConstants.APN_TYPE_DEFAULT)) {
                 handlePdpRejectCauseSuccess();
             }
         } else {
@@ -151,8 +185,15 @@ public class VendorDcTracker extends DcTracker {
             @RequestNetworkType int requestType) {
         long delay = apnContext.getDelayForNextApn(mFailFast);
         if (mPhone.getContext().getResources().getBoolean(
-                com.android.internal.R.bool.config_pdp_reject_enable_retry)) {
+                com.android.internal.R.bool.config_pdp_reject_enable_retry) &&
+                TextUtils.equals(apnContext.getApnType(), PhoneConstants.APN_TYPE_DEFAULT)) {
             String reason = DataFailCause.toString(mPdpRejectCauseCode);
+            //Reset apn permanent failure to allow retry
+            ApnSetting apn = apnContext.getApnSetting();
+            if (apn != null) {
+                if (DBG) log("onDataSetupCompleteError: reset permanent failure on apn");
+                apn.setPermanentFailed(false);
+            }
 
             if (isMatchingPdpRejectCause(reason)) {
                 if (mVendorDataResetEventTracker == null) {
