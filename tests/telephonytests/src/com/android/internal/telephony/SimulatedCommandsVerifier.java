@@ -1464,4 +1464,8 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     @Override
     public void getBarringInfo(Message result) {
     }
+
+    @Override
+    public void getQtiRadioCapability(Message result) {
+    }
 }
