@@ -1332,8 +1332,9 @@ public class ServiceStateTracker extends Handler {
                 }
                 // This will do nothing in the 'radio not available' case
                 setPowerStateToDesired();
-                // These events are modem triggered, so pollState() needs to be forced
-                pollStateInternal(true);
+                boolean forceTrigger =
+                    mCi.getRadioState() != TelephonyManager.RADIO_POWER_OFF;
+                pollStateInternal(forceTrigger);
                 break;
 
             case EVENT_NETWORK_STATE_CHANGED:
