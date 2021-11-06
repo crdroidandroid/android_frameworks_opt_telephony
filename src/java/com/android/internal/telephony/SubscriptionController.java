@@ -718,6 +718,19 @@ public class SubscriptionController extends ISub.Stub {
      */
     @Override
     public List<SubscriptionInfo> getAllSubInfoList(String callingPackage) {
+        return getAllSubInfoList(callingPackage, false);
+    }
+
+    /**
+     * @param callingPackage The package making the IPC.
+     * @param callingFeatureId The feature in the package
+     * @param skipConditionallyRemoveIdentifier if set, skip removing identifier conditionally
+     * @return List of all SubscriptionInfo records in database,
+     * include those that were inserted before, maybe empty but not null.
+     * @hide
+     */
+    public List<SubscriptionInfo> getAllSubInfoList(String callingPackage,
+            boolean skipConditionallyRemoveIdentifier) {
         if (VDBG) logd("[getAllSubInfoList]+");
 
         // This API isn't public, so no need to provide a valid subscription ID - we're not worried
@@ -736,9 +749,9 @@ public class SubscriptionController extends ISub.Stub {
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
-        if (subList != null) {
+        if (subList != null && !skipConditionallyRemoveIdentifier) {
             if (VDBG) logd("[getAllSubInfoList]- " + subList.size() + " infos return");
-            subList.stream().map(
+            subList = subList.stream().map(
                     subscriptionInfo -> conditionallyRemoveIdentifiers(subscriptionInfo,
                             callingPackage, "getAllSubInfoList"))
                     .collect(Collectors.toList());
@@ -3410,7 +3423,9 @@ public class SubscriptionController extends ISub.Stub {
         List<SubscriptionInfo> subInfoList;
 
         try {
-            subInfoList = getAllSubInfoList(mContext.getOpPackageName());
+            // need to bypass removing identifier check because that will remove the subList without
+            // group id.
+            subInfoList = getAllSubInfoList(mContext.getOpPackageName(), true);
             if (groupUuid == null || subInfoList == null || subInfoList.isEmpty()) {
                 return new ArrayList<>();
             }
