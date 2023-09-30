@@ -61,9 +61,9 @@ public class IccPhoneBookInterfaceManager {
     protected static final int EVENT_LOAD_DONE = 2;
     protected static final int EVENT_UPDATE_DONE = 3;
 
-    private static final class Request {
+    public static final class Request {
         AtomicBoolean mStatus = new AtomicBoolean(false);
-        Object mResult = null;
+        public Object mResult = null;
     }
 
     @UnsupportedAppUsage
@@ -388,7 +388,7 @@ public class IccPhoneBookInterfaceManager {
     }
 
     @UnsupportedAppUsage
-    private int updateEfForIccType(int efid) {
+    protected int updateEfForIccType(int efid) {
         // Check if we are trying to read ADN records
         if (efid == IccConstants.EF_ADN) {
             if (mPhone.getCurrentUiccAppType() == AppType.APPTYPE_USIM) {
@@ -398,11 +398,11 @@ public class IccPhoneBookInterfaceManager {
         return efid;
     }
 
-    private String[] getEmailStringArray(String str) {
+    protected String[] getEmailStringArray(String str) {
         return str != null ? str.split(",") : null;
     }
 
-    private String[] getAnrStringArray(String str) {
+    protected String[] getAnrStringArray(String str) {
         return str != null ? str.split(":") : null;
     }
 
