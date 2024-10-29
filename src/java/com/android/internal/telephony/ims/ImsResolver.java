@@ -255,6 +255,9 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
         @Override
         public void onReceive(Context context, Intent intent) {
             final String action = intent.getAction();
+            if (action == null) {
+                return;
+            }
             final UserHandle handle = intent.getParcelableExtra(Intent.EXTRA_USER,
                     UserHandle.class);
             switch (action) {
