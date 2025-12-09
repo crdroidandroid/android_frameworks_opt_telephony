@@ -140,6 +140,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import android.database.ContentObserver;
+import android.net.Uri;
+
 /**
  * {@hide}
  */
@@ -160,6 +163,12 @@ public class ServiceStateTracker extends Handler {
     private IccRecords mIccRecords = null;
 
     private boolean mVoiceCapable;
+
+    // Content observer for Force LTE_CA setting changes
+    private ContentObserver mForceLteCAObserver;
+
+    // Force LTE_CA state per SIM flag
+    private Boolean mForceLteCA = null;
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ServiceState mSS;
@@ -710,6 +719,9 @@ public class ServiceStateTracker extends Handler {
         mCi = ci;
         mFeatureFlags = featureFlags;
 
+        registerForceLteCAObserver();
+        updateForceLteCAState();
+
         mServiceStateStats = new ServiceStateStats(mPhone);
 
         mCdnr = new CarrierDisplayNameResolver(mPhone);
@@ -981,6 +993,12 @@ public class ServiceStateTracker extends Handler {
         if (mAccessNetworksManagerCallback != null) {
             mAccessNetworksManager.unregisterCallback(mAccessNetworksManagerCallback);
             mAccessNetworksManagerCallback = null;
+        }
+        // Unregister Force LTE_CA observer
+        if (mForceLteCAObserver != null) {
+            mPhone.getContext().getContentResolver()
+                    .unregisterContentObserver(mForceLteCAObserver);
+            mForceLteCAObserver = null;
         }
     }
 
@@ -3558,10 +3576,59 @@ public class ServiceStateTracker extends Handler {
             .collect(Collectors.toList());
     }
 
+    /**
+     * Register content observer for Force LTE_CA setting changes.
+     */
+    private void registerForceLteCAObserver() {
+        int phoneId = mPhone.getPhoneId();
+        Uri settingUri = Settings.Global.getUriFor(
+                Settings.Global.FORCE_LTE_CA + "_" + phoneId);
+        
+        mForceLteCAObserver = new ContentObserver(this) {
+            @Override
+            public void onChange(boolean selfChange) {
+                if (DBG) log("Force LTE_CA setting changed, updating state");
+                updateForceLteCAState();
+            }
+        };
+        
+        mPhone.getContext().getContentResolver().registerContentObserver(
+                settingUri, false, mForceLteCAObserver);
+    }
+
+    /**
+     * Update the per-SIM Force LTE_CA flag and apply to ServiceState.
+     */
+    private void updateForceLteCAState() {
+        int phoneId = mPhone.getPhoneId();
+
+        int forceLteCAInt = Settings.Global.getInt(
+                mPhone.getContext().getContentResolver(),
+                Settings.Global.FORCE_LTE_CA + "_" + phoneId,
+                -1);
+
+        Boolean newForceLteCA = (forceLteCAInt == -1) ? null : (forceLteCAInt == 1);
+
+        if (!Objects.equals(mForceLteCA, newForceLteCA)) {
+            if (DBG) log("Force LTE_CA state changed from " + mForceLteCA + " to " + newForceLteCA);
+            
+            mForceLteCA = newForceLteCA;
+
+            if (mSS != null) {
+                mSS.setForceLteCA(newForceLteCA);
+                mPhone.notifyServiceStateChanged(mSS);
+            }
+
+            pollState();
+        }
+    }
+
     private void pollStateDone() {
         if (!mPhone.isPhoneTypeGsm()) {
             updateRoamingState();
         }
+
+        updateForceLteCAState();
 
         if (TelephonyUtils.IS_DEBUGGABLE
                 && SystemProperties.getBoolean(PROP_FORCE_ROAMING, false)) {
@@ -3806,6 +3873,9 @@ public class ServiceStateTracker extends Handler {
         }
 
         ServiceState oldMergedSS = new ServiceState(mPhone.getServiceState());
+
+        mNewSS.setForceLteCA(mForceLteCA);
+
         mSS = new ServiceState(mNewSS);
 
         mNewSS.setOutOfService(false);
