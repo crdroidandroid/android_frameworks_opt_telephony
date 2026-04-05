@@ -704,7 +704,10 @@ public class NetworkTypeController extends StateMachine {
 
     private @Annotation.OverrideNetworkType int getLteDisplayType() {
         int value = TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE;
-        if ((getDataNetworkType() == TelephonyManager.NETWORK_TYPE_LTE_CA
+        boolean isForceLteCaEnabled = Boolean.TRUE.equals(mServiceState.getForceLteCA());
+        if (isForceLteCaEnabled) {
+            value = TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_LTE_CA;
+        } else if ((getDataNetworkType() == TelephonyManager.NETWORK_TYPE_LTE_CA
                 || mServiceState.isUsingCarrierAggregation())
                 && IntStream.of(mServiceState.getCellBandwidths()).sum()
                 > mLtePlusThresholdBandwidth) {
