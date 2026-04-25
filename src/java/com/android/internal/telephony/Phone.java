@@ -4898,19 +4898,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     @Nullable
     public UserHandle getUserHandle() {
-        int subId = getSubId();
-
-        UserHandle userHandle = null;
-        try {
-            SubscriptionManager subManager = mContext.getSystemService(SubscriptionManager.class);
-            if (subManager != null) {
-                userHandle = subManager.getSubscriptionUserHandle(subId);
-            }
-        } catch (IllegalArgumentException ex) {
-            loge("getUserHandle: ex=" + ex);
-        }
-
-        return userHandle;
+        return TelephonyUtils.getSubscriptionUserHandle(mContext, getSubId());
     }
 
     /**

@@ -988,6 +988,27 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
     @Test
     @SmallTest
+    public void testGetUserHandleWithInvalidSubIdReturnsNull() {
+        doReturn(SubscriptionManager.INVALID_SUBSCRIPTION_ID).when(mSubscriptionManagerService)
+                .getSubId(anyInt());
+
+        assertNull(mPhoneUT.getUserHandle());
+        verify(mSubscriptionManager, never()).getSubscriptionUserHandle(anyInt());
+    }
+
+    @Test
+    @SmallTest
+    public void testGetUserHandleReturnsSubscriptionUserHandle() {
+        final int subId = 1;
+        final UserHandle userHandle = UserHandle.of(10);
+        doReturn(subId).when(mSubscriptionManagerService).getSubId(anyInt());
+        when(mSubscriptionManager.getSubscriptionUserHandle(subId)).thenReturn(userHandle);
+
+        assertEquals(userHandle, mPhoneUT.getUserHandle());
+    }
+
+    @Test
+    @SmallTest
     public void testGetIccCardUnknownAndAbsent() {
         // If UiccSlot.isStateUnknown is true, we should return a placeholder IccCard with the state
         // set to UNKNOWN
