@@ -4156,6 +4156,15 @@ public class RILUtils {
         }
     }
 
+    /** Normalizes invalid HAL physical cell IDs to UNKNOWN instead of dropping the full PCC. */
+    public static int sanitizePhysicalCellId(int physicalCellId) {
+        if (physicalCellId < PhysicalChannelConfig.PHYSICAL_CELL_ID_UNKNOWN
+                || physicalCellId > PhysicalChannelConfig.PHYSICAL_CELL_ID_MAXIMUM_VALUE) {
+            return PhysicalChannelConfig.PHYSICAL_CELL_ID_UNKNOWN;
+        }
+        return physicalCellId;
+    }
+
     /**
      * Convert Call defined in radio/1.2, 1.6/types.hal to DriverCall
      * @param halCall Call defined in radio/1.2, 1.6/types.hal
