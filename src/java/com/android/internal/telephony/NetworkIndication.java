@@ -183,7 +183,7 @@ public class NetworkIndication extends IRadioNetworkIndication.Stub {
                         .setCellBandwidthDownlinkKhz(config.cellBandwidthDownlinkKhz)
                         .setCellBandwidthUplinkKhz(config.cellBandwidthUplinkKhz)
                         .setNetworkType(ServiceState.rilRadioTechnologyToNetworkType(config.rat))
-                        .setPhysicalCellId(config.physicalCellId)
+                        .setPhysicalCellId(RILUtils.sanitizePhysicalCellId(config.physicalCellId))
                         .setContextIds(config.contextIds)
                         .build());
             }
