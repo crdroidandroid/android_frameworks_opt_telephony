@@ -5074,6 +5074,15 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         mNotifier.notifyCallbackModeStopped(this, type, reason);
     }
 
+    private boolean shouldNotifyCarrierRoamingNtn(String caller) {
+        int subId = getSubId();
+        if (SubscriptionManager.isValidSubscriptionId(subId)) {
+            return true;
+        }
+        logd(caller + ": skip notify for invalid subId=" + subId);
+        return false;
+    }
+
     /**
      * Notify carrier roaming non-terrestrial network mode changed
      * @param active {@code true} If the device is connected to carrier roaming
@@ -5082,6 +5091,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      *                           duration, {code false} otherwise.
      */
     public void notifyCarrierRoamingNtnModeChanged(boolean active) {
+        if (!shouldNotifyCarrierRoamingNtn("notifyCarrierRoamingNtnModeChanged")) {
+            return;
+        }
         logd("notifyCarrierRoamingNtnModeChanged active:" + active);
         mNotifier.notifyCarrierRoamingNtnModeChanged(this, active);
     }
@@ -5103,6 +5115,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * </ul>
      */
     public void notifyCarrierRoamingNtnEligibleStateChanged(boolean eligible) {
+        if (!shouldNotifyCarrierRoamingNtn("notifyCarrierRoamingNtnEligibleStateChanged")) {
+            return;
+        }
         logd("notifyCarrierRoamingNtnEligibleStateChanged eligible:" + eligible);
         mNotifier.notifyCarrierRoamingNtnEligibleStateChanged(this, eligible);
         ControllerMetricsStats.getInstance().reportP2PSmsEligibilityNotificationsCount(eligible);
@@ -5114,6 +5129,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public void notifyCarrierRoamingNtnAvailableServicesChanged(
             @NetworkRegistrationInfo.ServiceType int[] availableServices) {
+        if (!shouldNotifyCarrierRoamingNtn("notifyCarrierRoamingNtnAvailableServicesChanged")) {
+            return;
+        }
         logd("notifyCarrierRoamingNtnAvailableServicesChanged availableServices:"
                 + Arrays.toString(availableServices));
         mNotifier.notifyCarrierRoamingNtnAvailableServicesChanged(this, availableServices);
@@ -5126,6 +5144,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public void notifyCarrierRoamingNtnSignalStrengthChanged(
             @NonNull NtnSignalStrength ntnSignalStrength) {
+        if (!shouldNotifyCarrierRoamingNtn("notifyCarrierRoamingNtnSignalStrengthChanged")) {
+            return;
+        }
         logd("notifyCarrierRoamingNtnSignalStrengthChanged: ntnSignalStrength="
                 + ntnSignalStrength.getLevel());
         mNotifier.notifyCarrierRoamingNtnSignalStrengthChanged(this, ntnSignalStrength);
