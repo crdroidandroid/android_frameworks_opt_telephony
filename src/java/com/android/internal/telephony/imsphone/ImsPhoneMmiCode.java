@@ -82,7 +82,7 @@ import java.util.regex.Pattern;
  * @hide
  *
  */
-public final class ImsPhoneMmiCode extends Handler implements MmiCode {
+public class ImsPhoneMmiCode extends Handler implements MmiCode {
     static final String LOG_TAG = "ImsPhoneMmiCode";
 
     //***** Constants

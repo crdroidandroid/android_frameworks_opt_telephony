@@ -75,7 +75,7 @@ import java.util.regex.Pattern;
  * @hide
  *
  */
-public final class GsmMmiCode extends Handler implements MmiCode {
+public class GsmMmiCode extends Handler implements MmiCode {
     static final String LOG_TAG = "GsmMmiCode";
 
     //***** Constants

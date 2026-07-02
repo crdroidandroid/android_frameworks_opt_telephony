@@ -24,7 +24,7 @@ import com.android.telephony.Rlog;
 /**
  * @hide
  */
-public final class RuimFileHandler extends IccFileHandler {
+public class RuimFileHandler extends IccFileHandler {
     static final String LOG_TAG = "RuimFH";
 
     //***** Instance Variables
