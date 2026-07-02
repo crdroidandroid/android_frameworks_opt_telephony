@@ -46,7 +46,7 @@ import com.android.telephony.Rlog;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
-public final class GsmSMSDispatcher extends SMSDispatcher {
+public class GsmSMSDispatcher extends SMSDispatcher {
     private static final String TAG = "GsmSMSDispatcher";
     protected UiccController mUiccController = null;
     private AtomicReference<IccRecords> mIccRecords = new AtomicReference<IccRecords>();
