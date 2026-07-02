@@ -22,7 +22,7 @@ import com.android.telephony.Rlog;
 /**
  * @hide
  */
-public final class SIMFileHandler extends IccFileHandler implements IccConstants {
+public class SIMFileHandler extends IccFileHandler implements IccConstants {
     static final String LOG_TAG = "SIMFileHandler";
 
     //***** Instance Variables
