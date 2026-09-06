@@ -4229,7 +4229,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
         mPreferredUsageSetting = getResolvedUsageSetting(subId);
         if (mPreferredUsageSetting == SubscriptionManager.USAGE_SETTING_UNKNOWN) {
-            loge("Usage Setting is Supported but Preferred Setting Unknown!");
+            logd("Skipping usage setting update: preferred setting is unknown");
             return false;
         }
 
