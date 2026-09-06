@@ -4037,6 +4037,40 @@ public class RIL extends BaseCommands implements CommandsInterface {
             return;
         }
 
+        if (!networkProxy.isAidl() && signalThresholdInfos.size() != 1) {
+            if (signalThresholdInfos.isEmpty()) {
+                if (result != null) {
+                    AsyncResult.forMessage(result, null, null);
+                    result.sendToTarget();
+                }
+                return;
+            }
+
+            // HIDL responds to each criterion separately. Track each request and complete the
+            // caller's message only after all responses, retaining the first error if any.
+            Handler responseHandler = result == null ? null : new Handler(mRilHandler.getLooper()) {
+                private int mRemainingResponses = signalThresholdInfos.size();
+                private Throwable mException;
+
+                @Override
+                public void handleMessage(Message msg) {
+                    AsyncResult ar = (AsyncResult) msg.obj;
+                    if (mException == null) {
+                        mException = ar.exception;
+                    }
+                    if (--mRemainingResponses == 0) {
+                        AsyncResult.forMessage(result, null, mException);
+                        result.sendToTarget();
+                    }
+                }
+            };
+            for (SignalThresholdInfo info : signalThresholdInfos) {
+                setSignalStrengthReportingCriteria(List.of(info),
+                        responseHandler == null ? null : responseHandler.obtainMessage());
+            }
+            return;
+        }
+
         RILRequest rr = obtainRequest(RIL_REQUEST_SET_SIGNAL_STRENGTH_REPORTING_CRITERIA, result,
                 mRILDefaultWorkSource);
 
