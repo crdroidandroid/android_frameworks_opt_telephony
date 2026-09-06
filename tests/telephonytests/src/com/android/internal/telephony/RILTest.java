@@ -95,6 +95,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -157,6 +158,7 @@ import android.telephony.ClosedSubscriberGroupInfo;
 import android.telephony.NetworkScanRequest;
 import android.telephony.RadioAccessFamily;
 import android.telephony.RadioAccessSpecifier;
+import android.telephony.SignalThresholdInfo;
 import android.telephony.SmsManager;
 import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting;
@@ -2649,6 +2651,232 @@ public class RILTest extends TelephonyTest {
         Assert.assertNull(ar.result);
         Assert.assertNotNull(ar.exception.getMessage());
         Assert.assertEquals("REQUEST_NOT_SUPPORTED", ar.exception.getMessage());
+    }
+
+    private List<SignalThresholdInfo> signalStrengthCriteria() {
+        return List.of(new SignalThresholdInfo.Builder()
+                        .setRadioAccessNetworkType(AccessNetworkConstants.AccessNetworkType.GERAN)
+                        .setSignalMeasurementType(SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSSI)
+                        .setThresholds(new int[] {-105, -95}, true)
+                        .build(),
+                new SignalThresholdInfo.Builder()
+                        .setRadioAccessNetworkType(AccessNetworkConstants.AccessNetworkType.EUTRAN)
+                        .setSignalMeasurementType(SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSRP)
+                        .setThresholds(new int[] {-115, -105}, true)
+                        .build());
+    }
+
+    private Message signalStrengthResult(List<AsyncResult> results) {
+        return new Handler(Looper.myLooper(), msg -> {
+            results.add((AsyncResult) msg.obj);
+            return true;
+        }).obtainMessage();
+    }
+
+    private void respondToSignalStrengthCriteria(int serial, int error) {
+        RadioResponseInfo info = new RadioResponseInfo();
+        info.serial = serial;
+        info.error = error;
+        info.type = RadioResponseType.SOLICITED;
+        new RadioResponse(mRILUnderTest).setSignalStrengthReportingCriteriaResponse(info);
+        processAllMessages();
+    }
+
+    private void respondToSignalStrengthCriteriaAidl(int serial, int error) {
+        android.hardware.radio.RadioResponseInfo info =
+                new android.hardware.radio.RadioResponseInfo();
+        info.serial = serial;
+        info.error = error;
+        info.type = RadioResponseType.SOLICITED;
+        new NetworkResponse(mRILUnderTest).setSignalStrengthReportingCriteriaResponse(info);
+        processAllMessages();
+    }
+
+    private void verifySignalStrengthRequestsCompleted() {
+        assertEquals(0, mRILUnderTest.mRequestList.size());
+        assertEquals(0, mRILUnderTest.mWakeLockCount);
+        assertFalse(mRILUnderTest.mWakeLock.isHeld());
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaHidl14DistinctSerials() throws Exception {
+        verifySignalStrengthCriteriaHidlDistinctSerials(RIL.RADIO_HAL_VERSION_1_4);
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaHidl15DistinctSerials() throws Exception {
+        verifySignalStrengthCriteriaHidlDistinctSerials(RIL.RADIO_HAL_VERSION_1_5);
+    }
+
+    private void verifySignalStrengthCriteriaHidlDistinctSerials(HalVersion version)
+            throws Exception {
+        RadioNetworkProxy proxy = new RadioNetworkProxy();
+        proxy.setHidl(version, mRadioProxy);
+        doReturn(proxy).when(mRILUnderTest).getRadioServiceProxy(RadioNetworkProxy.class);
+        List<SignalThresholdInfo> criteria = signalStrengthCriteria();
+        List<AsyncResult> results = new ArrayList<>();
+        mRILUnderTest.setSignalStrengthReportingCriteria(criteria, signalStrengthResult(results));
+        if (version.equals(RIL.RADIO_HAL_VERSION_1_4)) {
+            verify(mRadioProxy, times(2)).setSignalStrengthReportingCriteria(
+                    mSerialNumberCaptor.capture(), anyInt(), anyInt(), any(), anyInt());
+        } else {
+            verify(mRadioProxy, times(2)).setSignalStrengthReportingCriteria_1_5(
+                    mSerialNumberCaptor.capture(), any(), anyInt());
+        }
+        List<Integer> serials = mSerialNumberCaptor.getAllValues();
+        assertEquals(2, new HashSet<>(serials).size());
+        assertEquals(2, mRILUnderTest.mRequestList.size());
+        assertEquals(2, mRILUnderTest.mWakeLockCount);
+        respondToSignalStrengthCriteria(serials.get(1), RadioError.NONE);
+        assertTrue(results.isEmpty());
+        assertEquals(1, mRILUnderTest.mRequestList.size());
+        respondToSignalStrengthCriteria(serials.get(0), RadioError.NONE);
+        assertEquals(1, results.size());
+        assertNull(results.get(0).exception);
+        verifySignalStrengthRequestsCompleted();
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaHidlPreservesError() throws Exception {
+        List<AsyncResult> results = new ArrayList<>();
+        mRILUnderTest.setSignalStrengthReportingCriteria(signalStrengthCriteria(),
+                signalStrengthResult(results));
+        verify(mNetworkProxy, times(2)).setSignalStrengthReportingCriteria(
+                mSerialNumberCaptor.capture(), any());
+        List<Integer> serials = mSerialNumberCaptor.getAllValues();
+        respondToSignalStrengthCriteria(serials.get(1), RadioError.INVALID_ARGUMENTS);
+        assertTrue(results.isEmpty());
+        respondToSignalStrengthCriteria(serials.get(0), RadioError.NONE);
+        assertEquals(1, results.size());
+        assertEquals(CommandException.Error.INVALID_ARGUMENTS,
+                ((CommandException) results.get(0).exception).getCommandError());
+        verifySignalStrengthRequestsCompleted();
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaHidlErrorAfterSuccess() throws Exception {
+        List<AsyncResult> results = new ArrayList<>();
+        mRILUnderTest.setSignalStrengthReportingCriteria(signalStrengthCriteria(),
+                signalStrengthResult(results));
+        verify(mNetworkProxy, times(2)).setSignalStrengthReportingCriteria(
+                mSerialNumberCaptor.capture(), any());
+        List<Integer> serials = mSerialNumberCaptor.getAllValues();
+        respondToSignalStrengthCriteria(serials.get(0), RadioError.NONE);
+        assertTrue(results.isEmpty());
+        respondToSignalStrengthCriteria(serials.get(1), RadioError.INVALID_ARGUMENTS);
+        assertEquals(1, results.size());
+        assertEquals(CommandException.Error.INVALID_ARGUMENTS,
+                ((CommandException) results.get(0).exception).getCommandError());
+        verifySignalStrengthRequestsCompleted();
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaHidlKeepsFirstError() throws Exception {
+        List<AsyncResult> results = new ArrayList<>();
+        mRILUnderTest.setSignalStrengthReportingCriteria(signalStrengthCriteria(),
+                signalStrengthResult(results));
+        verify(mNetworkProxy, times(2)).setSignalStrengthReportingCriteria(
+                mSerialNumberCaptor.capture(), any());
+        List<Integer> serials = mSerialNumberCaptor.getAllValues();
+        respondToSignalStrengthCriteria(serials.get(1), RadioError.INVALID_ARGUMENTS);
+        assertTrue(results.isEmpty());
+        respondToSignalStrengthCriteria(serials.get(0), RadioError.REQUEST_NOT_SUPPORTED);
+        assertEquals(1, results.size());
+        assertEquals(CommandException.Error.INVALID_ARGUMENTS,
+                ((CommandException) results.get(0).exception).getCommandError());
+        verifySignalStrengthRequestsCompleted();
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaHidlNullResult() throws Exception {
+        mRILUnderTest.setSignalStrengthReportingCriteria(signalStrengthCriteria(), null);
+        verify(mNetworkProxy, times(2)).setSignalStrengthReportingCriteria(
+                mSerialNumberCaptor.capture(), any());
+        List<Integer> serials = mSerialNumberCaptor.getAllValues();
+        assertEquals(2, new HashSet<>(serials).size());
+        for (int serial : serials) {
+            assertNull(mRILUnderTest.mRequestList.get(serial).mResult);
+            respondToSignalStrengthCriteria(serial, RadioError.NONE);
+        }
+        verifySignalStrengthRequestsCompleted();
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaHidlEmpty() throws Exception {
+        List<AsyncResult> results = new ArrayList<>();
+        mRILUnderTest.setSignalStrengthReportingCriteria(List.of(), signalStrengthResult(results));
+        mRILUnderTest.setSignalStrengthReportingCriteria(List.of(), null);
+        processAllMessages();
+        verify(mNetworkProxy, never()).setSignalStrengthReportingCriteria(anyInt(), any());
+        assertEquals(1, results.size());
+        assertNull(results.get(0).exception);
+        verifySignalStrengthRequestsCompleted();
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaAidlKeepsBatch() throws Exception {
+        doReturn(true).when(mNetworkProxy).isAidl();
+        List<SignalThresholdInfo> criteria = signalStrengthCriteria();
+        List<AsyncResult> results = new ArrayList<>();
+        mRILUnderTest.setSignalStrengthReportingCriteria(criteria, signalStrengthResult(results));
+        verify(mNetworkProxy).setSignalStrengthReportingCriteria(mSerialNumberCaptor.capture(),
+                eq(criteria));
+        assertEquals(1, mRILUnderTest.mRequestList.size());
+        respondToSignalStrengthCriteriaAidl(mSerialNumberCaptor.getValue(), RadioError.NONE);
+        assertEquals(1, results.size());
+        assertNull(results.get(0).exception);
+        verifySignalStrengthRequestsCompleted();
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaAidlEmptyStillSent() throws Exception {
+        doReturn(true).when(mNetworkProxy).isAidl();
+        List<AsyncResult> results = new ArrayList<>();
+        mRILUnderTest.setSignalStrengthReportingCriteria(List.of(), signalStrengthResult(results));
+        verify(mNetworkProxy).setSignalStrengthReportingCriteria(mSerialNumberCaptor.capture(),
+                eq(List.of()));
+        respondToSignalStrengthCriteriaAidl(mSerialNumberCaptor.getValue(), RadioError.NONE);
+        assertEquals(1, results.size());
+        verifySignalStrengthRequestsCompleted();
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaHidlImmediateFailure() throws Exception {
+        doThrow(new IllegalStateException()).doNothing().when(mNetworkProxy)
+                .setSignalStrengthReportingCriteria(anyInt(), any());
+        List<AsyncResult> results = new ArrayList<>();
+        mRILUnderTest.setSignalStrengthReportingCriteria(signalStrengthCriteria(),
+                signalStrengthResult(results));
+        verify(mNetworkProxy, times(2)).setSignalStrengthReportingCriteria(
+                mSerialNumberCaptor.capture(), any());
+        processAllMessages();
+        assertTrue(results.isEmpty());
+        assertEquals(1, mRILUnderTest.mRequestList.size());
+        respondToSignalStrengthCriteria(mSerialNumberCaptor.getAllValues().get(1), RadioError.NONE);
+        assertEquals(1, results.size());
+        assertEquals(CommandException.Error.SYSTEM_ERR,
+                ((CommandException) results.get(0).exception).getCommandError());
+        verifySignalStrengthRequestsCompleted();
+    }
+
+    @Test
+    public void testSignalStrengthCriteriaHidlRadioDeathDuringBatch() throws Exception {
+        doAnswer(invocation -> {
+            when(mNetworkProxy.isEmpty()).thenReturn(true);
+            return null;
+        }).when(mNetworkProxy).clear();
+        doAnswer(invocation -> null).doThrow(new RemoteException()).when(mNetworkProxy)
+                .setSignalStrengthReportingCriteria(anyInt(), any());
+        List<SignalThresholdInfo> criteria = new ArrayList<>(signalStrengthCriteria());
+        criteria.add(criteria.get(0));
+        List<AsyncResult> results = new ArrayList<>();
+        mRILUnderTest.setSignalStrengthReportingCriteria(criteria, signalStrengthResult(results));
+        processAllMessages();
+        verify(mNetworkProxy, times(2)).setSignalStrengthReportingCriteria(anyInt(), any());
+        assertEquals(1, results.size());
+        assertEquals(CommandException.Error.RADIO_NOT_AVAILABLE,
+                ((CommandException) results.get(0).exception).getCommandError());
+        verifySignalStrengthRequestsCompleted();
     }
 
     @Test
