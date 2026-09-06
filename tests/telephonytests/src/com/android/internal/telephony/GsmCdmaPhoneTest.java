@@ -1457,6 +1457,31 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     }
 
     @Test
+    public void testN1ModeQueryNullResponseDoesNotInferState() {
+        mPhoneUT.mCi = mMockCi;
+        mPhoneUT.handleMessage(mPhoneUT.obtainMessage(Phone.EVENT_GET_N1_MODE_ENABLED_DONE));
+
+        mPhoneUT.setN1ModeEnabled(false, null);
+        processAllMessages();
+
+        verify(mMockCi).isN1ModeEnabled(any());
+        verify(mMockCi, never()).setN1ModeEnabled(anyBoolean(), any());
+    }
+
+    @Test
+    public void testN1ModeSetNullResponseClearsCachedState() {
+        testNrCapabilityChanged_firstRequest_needsChange();
+        mPhoneUT.handleMessage(mPhoneUT.obtainMessage(Phone.EVENT_SET_N1_MODE_ENABLED_DONE));
+
+        mPhoneUT.setN1ModeEnabled(false, null);
+        processAllMessages();
+
+        verify(mMockCi, times(2)).isN1ModeEnabled(any());
+        verify(mMockCi, times(1)).setN1ModeEnabled(eq(true), any());
+        verify(mMockCi, never()).setN1ModeEnabled(eq(false), any());
+    }
+
+    @Test
     public void testNrCapabilityChanged_firstRequest_ImsChanges() {
         mPhoneUT.mCi = mMockCi;
         Message passthroughMessage = mTestHandler.obtainMessage(0xC0FFEE);
