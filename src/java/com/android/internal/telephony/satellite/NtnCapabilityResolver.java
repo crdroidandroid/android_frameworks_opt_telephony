@@ -54,6 +54,10 @@ public class NtnCapabilityResolver {
         }
 
         SatelliteController satelliteController = SatelliteController.getInstance();
+        if (!satelliteController.isSatelliteSupportedOnDevice()) {
+            // Without device satellite support no NRI can ever gain NTN capability.
+            return;
+        }
         Set<String> allSatellitePlmns = satelliteController.getAllPlmnSet();
         boolean isNtn = networkRegistrationInfo.isNonTerrestrialNetwork();
         boolean isDtcSupported =
