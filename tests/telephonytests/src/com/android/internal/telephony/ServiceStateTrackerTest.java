@@ -239,6 +239,7 @@ public class ServiceStateTrackerTest extends TelephonyTest {
                 .isUsingNonTerrestrialNetworkViaCarrier();
         doReturn(false).when(mSatelliteController)
                 .isUsingNonTerrestrialNetworkViaCarrier(anyInt());
+        doReturn(true).when(mSatelliteController).isSatelliteSupportedOnDevice();
 
         mContextFixture.putResource(R.string.kg_text_message_separator, " \u2014 ");
 

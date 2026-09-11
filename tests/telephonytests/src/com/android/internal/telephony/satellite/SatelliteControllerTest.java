@@ -7065,6 +7065,8 @@ public class SatelliteControllerTest extends TelephonyTest {
         private boolean callOnlySuperMethod = false;
         public boolean isSatelliteEnabledOrBeingEnabled = false;
         public boolean mIsSatelliteRestrictedForCarrier = false;
+        // Tests default to the legacy ungated behavior; set to true to exercise the gate.
+        public boolean mSatelliteUnsupportedOnDevice = false;
 
         private boolean mLocationServiceEnabled = true;
 
@@ -7080,6 +7082,11 @@ public class SatelliteControllerTest extends TelephonyTest {
         @Nullable
         public Phone getSatellitePhone() {
             return super.getSatellitePhone();
+        }
+
+        @Override
+        public boolean isSatelliteSupportedOnDevice() {
+            return !mSatelliteUnsupportedOnDevice;
         }
 
         @Override
@@ -9243,6 +9250,28 @@ public class SatelliteControllerTest extends TelephonyTest {
                 eq(SatelliteConstants.SATELLITE_ELIGIBILITY_SOURCE_ENTITLEMENT));
         assertEquals(SatelliteConstants.SATELLITE_ELIGIBILITY_SOURCE_ENTITLEMENT,
                 mSatelliteControllerUT.getSatelliteEligibilitySource(SUB_ID));
+    }
+
+    @Test
+    public void testIsSatelliteSupportedOnDevice_seamDefaultsToSupported() {
+        assertTrue(mSatelliteControllerUT.isSatelliteSupportedOnDevice());
+
+        mSatelliteControllerUT.mSatelliteUnsupportedOnDevice = true;
+        assertFalse(mSatelliteControllerUT.isSatelliteSupportedOnDevice());
+    }
+
+    @Test
+    public void testIsDtcSatelliteTechnologySupported_notSupportedOnDevice_returnsFalse() {
+        mSatelliteControllerUT.mSatelliteUnsupportedOnDevice = true;
+
+        assertFalse(mSatelliteControllerUT.isDtcSatelliteTechnologySupported(SUB_ID, "00101"));
+    }
+
+    @Test
+    public void testIsCarrierRoamingNtnEligible_notSupportedOnDevice_returnsFalse() {
+        mSatelliteControllerUT.mSatelliteUnsupportedOnDevice = true;
+
+        assertFalse(mSatelliteControllerUT.isCarrierRoamingNtnEligible(mPhone));
     }
 
     @Test

@@ -421,6 +421,7 @@ public class SatelliteController extends Handler {
     private AtomicBoolean mDisableUWBOnSatelliteEnabled = new AtomicBoolean(false);
     private AtomicBoolean mDisableWifiOnSatelliteEnabled = new AtomicBoolean(false);
     protected AtomicBoolean mIsSatelliteSupported = null;
+    private final boolean mIsSatelliteSupportedOnDevice;
     private AtomicBoolean mNeedsSatellitePointing = new AtomicBoolean(false);
     private AtomicBoolean mIsDemoModeEnabled = new AtomicBoolean(false);
     private AtomicBoolean mIsEmergency = new AtomicBoolean(false);
@@ -1033,6 +1034,11 @@ public class SatelliteController extends Handler {
         mPersistentLogger = SatelliteServiceUtils.getPersistentLogger(context);
         mContext = context;
         mFeatureFlags = featureFlags;
+        // A null PackageManager only happens in incompletely stubbed unit tests; keep the
+        // legacy ungated behavior there. In production the PackageManager always exists.
+        mIsSatelliteSupportedOnDevice = mContext.getPackageManager() == null
+                || mContext.getPackageManager().hasSystemFeature(
+                        PackageManager.FEATURE_TELEPHONY_SATELLITE);
         Phone phone = SatelliteServiceUtils.getPhone();
         setSatellitePhone(phone);
         mCi = phone.mCi;
@@ -4688,6 +4694,14 @@ public class SatelliteController extends Handler {
     }
 
     /**
+     * @return {@code true} if the device declares satellite support via
+     * {@link PackageManager#FEATURE_TELEPHONY_SATELLITE}, {@code false} otherwise.
+     */
+    public boolean isSatelliteSupportedOnDevice() {
+        return mIsSatelliteSupportedOnDevice;
+    }
+
+    /**
      * @return {@code true} if satellite is supported via OEM on the device,
      * {@code  false} otherwise.
      */
@@ -7700,6 +7714,10 @@ public class SatelliteController extends Handler {
     }
 
     private void registerForServiceStateChanged() {
+        if (!isSatelliteSupportedOnDevice()) {
+            plogd("registerForServiceStateChanged: skip, satellite is not supported on device");
+            return;
+        }
         for (Phone phone : PhoneFactory.getPhones()) {
             phone.registerForServiceStateChanged(this, EVENT_SERVICE_STATE_CHANGED, null);
         }
@@ -7713,6 +7731,9 @@ public class SatelliteController extends Handler {
     }
 
     private void handleEventServiceStateChanged() {
+        if (!isSatelliteSupportedOnDevice()) {
+            return;
+        }
         evaluateCarrierRoamingNtnEligibilityChange();
         handleServiceStateForSatelliteConnectionViaCarrier();
     }
@@ -7818,6 +7839,9 @@ public class SatelliteController extends Handler {
      * is null or empty (for legacy device support); {@code false} otherwise.
      */
     public boolean isDtcSatelliteTechnologySupported(int subId, @NonNull String plmn) {
+        if (!isSatelliteSupportedOnDevice()) {
+            return false;
+        }
         logd("isDtcSatelliteTechnologySupported: subId=" + subId + ", plmn=" + plmn);
 
         Set<String> satelliteProviderSet = getAllPlmnSet();
@@ -8155,6 +8179,9 @@ public class SatelliteController extends Handler {
     }
 
     private void evaluateCarrierRoamingNtnEligibilityChange() {
+        if (!isSatelliteSupportedOnDevice()) {
+            return;
+        }
         registerForSatelliteCommunicationAccessStateChanged();
 
         if (isSatelliteEnabledOrBeingEnabled()) {
@@ -10004,6 +10031,10 @@ public class SatelliteController extends Handler {
      */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     public boolean isCarrierRoamingNtnEligible(@Nullable Phone phone) {
+        if (!isSatelliteSupportedOnDevice()) {
+            plogd("isCarrierRoamingNtnEligible: satellite is not supported on device");
+            return false;
+        }
         if (!mIsRadioOn.get()) {
             plogd("isCarrierRoamingNtnEligible: radio is off");
             return false;
