@@ -94,6 +94,7 @@ public class NtnCapabilityResolverTest extends TelephonyTest {
 
         replaceInstance(SatelliteController.class, "sInstance", null,
                 mMockSatelliteController);
+        doReturn(true).when(mMockSatelliteController).isSatelliteSupportedOnDevice();
         doReturn(SATELLITE_PLMN_SET)
                 .when(mMockSatelliteController).getAllPlmnSet();
         doReturn(mSatelliteSupportedServiceList).when(mMockSatelliteController)
@@ -183,6 +184,20 @@ public class NtnCapabilityResolverTest extends TelephonyTest {
         verify(mMockSatelliteController, never()).getAllPlmnSet();
         assertEquals("emptyPlmnNri should be the same as originalNri.",
                 originalNri, emptyPlmnNri);
+    }
+
+    @Test
+    public void testResolveNtnCapability_satelliteUnsupportedOnDevice_skipsResolution() {
+        logd("testResolveNtnCapability_satelliteUnsupportedOnDevice_skipsResolution");
+        doReturn(false).when(mMockSatelliteController).isSatelliteSupportedOnDevice();
+        NetworkRegistrationInfo nri = createNetworkRegistrationInfo(SATELLITE_PLMN);
+        NetworkRegistrationInfo originalNri = new NetworkRegistrationInfo(nri);
+
+        NtnCapabilityResolver.resolveNtnCapability(nri, SUB_ID);
+
+        verify(mMockSatelliteController, never()).getAllPlmnSet();
+        assertEquals("nri should be the same as originalNri.", originalNri, nri);
+        assertFalse(nri.isNonTerrestrialNetwork());
     }
 
     @Test
