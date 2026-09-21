@@ -88,7 +88,8 @@ public final class NetworkScanRequestTracker {
                 case EVENT_START_NETWORK_SCAN_DONE:
                     ar = (AsyncResult) msg.obj;
                     mScheduler.startScanDone(ar);
-                    ((NetworkScanRequestInfo) ar.userObj).mPhone.setNetworkScanStarted(true);
+                    ((NetworkScanRequestInfo) ar.userObj).mPhone.setNetworkScanStarted(
+                            ar.exception == null && ar.result != null);
                     break;
 
                 case EVENT_RECEIVE_NETWORK_SCAN_RESULT:
@@ -445,6 +446,40 @@ public final class NetworkScanRequestTracker {
                 if (ar.exception != null) {
                     CommandException.Error error =
                             ((CommandException) (ar.exception)).getCommandError();
+                    if (error == CommandException.Error.INVALID_ARGUMENTS
+                            || error == CommandException.Error.REQUEST_NOT_SUPPORTED
+                            || error == CommandException.Error.OPERATION_NOT_ALLOWED) {
+                        List<CellInfo> cachedCells = nsri.mPhone.getAllCellInfo();
+                        if (cachedCells != null && !cachedCells.isEmpty()) {
+                            Log.i(TAG, "startScanDone: scan rejected (" + error
+                                    + "), falling back to " + cachedCells.size() + " cell infos");
+                            LocationAccessPolicy.LocationPermissionQuery locationQuery =
+                                    new LocationAccessPolicy.LocationPermissionQuery.Builder()
+                                    .setCallingPackage(nsri.mCallingPackage)
+                                    .setCallingPid(nsri.mPid)
+                                    .setCallingUid(nsri.mUid)
+                                    .setCallingFeatureId(nsri.mPhone.getContext().getAttributionTag())
+                                    .setMinSdkVersionForFine(Build.VERSION_CODES.Q)
+                                    .setMinSdkVersionForCoarse(Build.VERSION_CODES.Q)
+                                    .setMinSdkVersionForEnforcement(Build.VERSION_CODES.Q)
+                                    .setMethod("NetworkScanTracker#onResult")
+                                    .build();
+                            boolean isLocationAccessAllowed = !nsri.mRenounceFineLocationAccess
+                                    && LocationAccessPolicy.checkLocationPermission(
+                                    nsri.mPhone.getContext(), locationQuery)
+                                    == LocationAccessPolicy.LocationPermissionResult.ALLOWED;
+                            int notifyMsg = isLocationAccessAllowed
+                                    ? TelephonyScanManager.CALLBACK_SCAN_RESULTS
+                                    : TelephonyScanManager.CALLBACK_RESTRICTED_SCAN_RESULTS;
+                            if (nsri.mPhone.getServiceStateTracker() != null) {
+                                nsri.mPhone.getServiceStateTracker().updateOperatorNameForCellInfo(
+                                        cachedCells);
+                            }
+                            notifyMessenger(nsri, notifyMsg, NetworkScan.SUCCESS, cachedCells);
+                            deleteScanAndMayNotify(nsri, NetworkScan.SUCCESS, true);
+                            return;
+                        }
+                    }
                     deleteScanAndMayNotify(nsri, commandExceptionErrorToScanError(error), true);
                 } else {
                     Log.wtf(TAG, "EVENT_START_NETWORK_SCAN_DONE: ar.exception can not be null!");
