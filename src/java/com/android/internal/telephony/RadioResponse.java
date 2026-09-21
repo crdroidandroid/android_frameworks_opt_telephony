@@ -2349,7 +2349,8 @@ public class RadioResponse extends IRadioResponse.Stub {
             return;
         }
 
-        final boolean needFallback = responseInfo.error == RadioError.REQUEST_NOT_SUPPORTED
+        final boolean needFallback = (responseInfo.error == RadioError.REQUEST_NOT_SUPPORTED
+                || responseInfo.error == RadioError.INVALID_ARGUMENTS)
                 && fallbackHalVersion != null && rr.mArguments != null && rr.mArguments.length > 0
                 && rr.mArguments[0] instanceof NetworkScanRequest;
         if (needFallback) {
