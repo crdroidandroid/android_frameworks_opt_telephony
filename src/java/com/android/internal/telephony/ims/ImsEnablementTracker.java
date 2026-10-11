@@ -83,6 +83,7 @@ public class ImsEnablementTracker {
         EVENT_DESCRIPTION.put(COMMAND_CONNECTED_MSG, "COMMAND_CONNECTED_MSG");
         EVENT_DESCRIPTION.put(COMMAND_DISCONNECTED_MSG, "COMMAND_DISCONNECTED_MSG");
         EVENT_DESCRIPTION.put(COMMAND_INVALID_SUBID_MSG, "COMMAND_INVALID_SUBID_MSG");
+        EVENT_DESCRIPTION.put(COMMAND_POST_RESETTING_DONE, "COMMAND_POST_RESETTING_DONE");
     }
 
     @VisibleForTesting
@@ -642,6 +643,9 @@ public class ImsEnablementTracker {
                         mLastMsg = message.what;
                         mSlotId = message.arg1;
                         mSubId = message.arg2;
+                        return HANDLED;
+                    case COMMAND_INVALID_SUBID_MSG:
+                        mLastMsg = COMMAND_NONE_MSG;
                         return HANDLED;
                     default:
                         return NOT_HANDLED;
