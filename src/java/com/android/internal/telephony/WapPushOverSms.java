@@ -214,8 +214,15 @@ public class WapPushOverSms implements ServiceConnection {
                 result.statusCode = Intents.RESULT_SMS_GENERIC_ERROR;
                 return result;
             }
-            int headerLength = (int) pduDecoder.getValue32();
+            long headerLengthValue = pduDecoder.getValue32();
             index += pduDecoder.getDecodedDataLength();
+
+            if (headerLengthValue < 0 || headerLengthValue > pdu.length - index) {
+                Rlog.w(TAG, "Received PDU. Invalid header length: " + headerLengthValue);
+                result.statusCode = Intents.RESULT_SMS_GENERIC_ERROR;
+                return result;
+            }
+            int headerLength = (int) headerLengthValue;
 
             int headerStartIndex = index;
 

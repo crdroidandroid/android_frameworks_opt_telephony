@@ -212,6 +212,13 @@ public class WspTypeDecoder {
         mWspData = pdu;
     }
 
+    /** Maximum value of a WSP uintvar (wap-230-wsp-20010705-a section 8.1.2: 32 bits). */
+    private static final long MAX_UINTVAR_VALUE = 0xFFFFFFFFL;
+
+    private boolean isValidIndex(int index) {
+        return index >= 0 && index < mWspData.length;
+    }
+
     /**
      * Decode the "Text-string" type for WSP pdu
      *
@@ -326,17 +333,32 @@ public class WspTypeDecoder {
      */
     @UnsupportedAppUsage
     public boolean decodeUintvarInteger(int startIndex) {
+        if (!isValidIndex(startIndex)) {
+            return false;
+        }
         int index = startIndex;
 
         mUnsigned32bit = 0;
-        while ((mWspData[index] & 0x80) != 0) {
-            if ((index - startIndex) >= 4) {
+        while (true) {
+            if (index >= mWspData.length) {
+                // Continuation bit set on the last byte of the PDU.
                 return false;
             }
-            mUnsigned32bit = (mUnsigned32bit << 7) | (mWspData[index] & 0x7f);
+            byte octet = mWspData[index];
+            mUnsigned32bit = (mUnsigned32bit << 7) | (octet & 0x7f);
+            if ((octet & 0x80) == 0) {
+                break;
+            }
+            if ((index - startIndex) >= 4) {
+                // A uintvar is encoded in at most 5 octets.
+                return false;
+            }
             index++;
         }
-        mUnsigned32bit = (mUnsigned32bit << 7) | (mWspData[index] & 0x7f);
+        if (mUnsigned32bit > MAX_UINTVAR_VALUE) {
+            // 5 octets carry 35 bits; anything above 32 bits is not a valid uintvar.
+            return false;
+        }
         mDataLength = index - startIndex + 1;
         return true;
     }
@@ -352,14 +374,21 @@ public class WspTypeDecoder {
      */
     @UnsupportedAppUsage
     public boolean decodeValueLength(int startIndex) {
-        if ((mWspData[startIndex] & 0xff) > WAP_PDU_LENGTH_QUOTE) {
+        if (!isValidIndex(startIndex)) {
             return false;
         }
-        if (mWspData[startIndex] < WAP_PDU_LENGTH_QUOTE) {
-            mUnsigned32bit = mWspData[startIndex];
+        int firstOctet = mWspData[startIndex] & 0xff;
+        if (firstOctet > WAP_PDU_LENGTH_QUOTE) {
+            return false;
+        }
+        if (firstOctet < WAP_PDU_LENGTH_QUOTE) {
+            mUnsigned32bit = firstOctet;
             mDataLength = 1;
         } else {
-            decodeUintvarInteger(startIndex + 1);
+            // Previously the result was ignored, leaving stale mDataLength/mUnsigned32bit.
+            if (!decodeUintvarInteger(startIndex + 1)) {
+                return false;
+            }
             mDataLength++;
         }
         return true;
@@ -380,7 +409,12 @@ public class WspTypeDecoder {
         mDataLength = 0;
         mStringValue = null;
         int length = mWspData.length;
-        boolean rtrn = index < length;
+        if (startIndex < 0 || startIndex >= length) {
+            // new String(...) below would throw StringIndexOutOfBoundsException for
+            // startIndex > length, which decodeContentType() did not catch.
+            return false;
+        }
+        boolean rtrn = true;
 
         while (index < length && mWspData[index] != 0) {
             index++;
@@ -428,15 +462,28 @@ public class WspTypeDecoder {
         mContentParameters = new HashMap<String, String>();
 
         try {
+            if (!isValidIndex(startIndex)) {
+                return false;
+            }
             if (decodeValueLength(startIndex) == false) {
+                if ((mWspData[startIndex] & 0xff) <= WAP_PDU_LENGTH_QUOTE) {
+                    // A Value-length prefix that failed to decode (e.g. a malformed uintvar
+                    // after Length-quote) must not fall through to Constrained-encoding.
+                    return false;
+                }
                 boolean found = decodeConstrainedEncoding(startIndex);
                 if (found) {
                     expandWellKnownMimeType();
                 }
                 return found;
             }
-            int headersLength = (int) mUnsigned32bit;
+            long valueLength = mUnsigned32bit;
             mediaPrefixLength = getDecodedDataLength();
+            if (valueLength > mWspData.length - startIndex - mediaPrefixLength) {
+                // Declared Content-type length runs past the end of the PDU.
+                return false;
+            }
+            int headersLength = (int) valueLength;
             if (decodeIntegerValue(startIndex + mediaPrefixLength) == true) {
                 mDataLength += mediaPrefixLength;
                 int readLength = mDataLength;
@@ -467,7 +514,7 @@ public class WspTypeDecoder {
                     return true;
                 }
             }
-        } catch (ArrayIndexOutOfBoundsException e) {
+        } catch (IndexOutOfBoundsException e) {
             //something doesn't add up
             return false;
         }
@@ -475,19 +522,22 @@ public class WspTypeDecoder {
     }
 
     private boolean readContentParameters(int startIndex, int leftToRead, int accumulator) {
+        int index = startIndex;
 
-        int totalRead = 0;
-
-        if (leftToRead > 0) {
-            byte nextByte = mWspData[startIndex];
+        while (leftToRead > 0) {
+            int totalRead = 0;
+            if (!isValidIndex(index)) {
+                return false;
+            }
+            byte nextByte = mWspData[index];
             String value = null;
             String param = null;
             if ((nextByte & 0x80) == 0x00 && nextByte > 31) { // untyped
-                decodeTokenText(startIndex);
+                decodeTokenText(index);
                 param = mStringValue;
                 totalRead += mDataLength;
             } else { // typed
-                if (decodeIntegerValue(startIndex)) {
+                if (decodeIntegerValue(index)) {
                     totalRead += mDataLength;
                     int wellKnownParameterValue = (int) mUnsigned32bit;
                     param = WELL_KNOWN_PARAMETERS.get(wellKnownParameterValue);
@@ -496,12 +546,14 @@ public class WspTypeDecoder {
                     }
                     // special case for the "Q" parameter, value is a uintvar
                     if (wellKnownParameterValue == Q_VALUE) {
-                        if (decodeUintvarInteger(startIndex + totalRead)) {
+                        if (decodeUintvarInteger(index + totalRead)) {
                             totalRead += mDataLength;
                             value = String.valueOf(mUnsigned32bit);
                             mContentParameters.put(param, value);
-                            return readContentParameters(startIndex + totalRead, leftToRead
-                                                            - totalRead, accumulator + totalRead);
+                            index += totalRead;
+                            leftToRead -= totalRead;
+                            accumulator += totalRead;
+                            continue;
                         } else {
                             return false;
                         }
@@ -511,15 +563,15 @@ public class WspTypeDecoder {
                 }
             }
 
-            if (decodeNoValue(startIndex + totalRead)) {
+            if (decodeNoValue(index + totalRead)) {
                 totalRead += mDataLength;
                 value = null;
-            } else if (decodeIntegerValue(startIndex + totalRead)) {
+            } else if (decodeIntegerValue(index + totalRead)) {
                 totalRead += mDataLength;
                 int intValue = (int) mUnsigned32bit;
                 value = String.valueOf(intValue);
             } else {
-                decodeTokenText(startIndex + totalRead);
+                decodeTokenText(index + totalRead);
                 totalRead += mDataLength;
                 value = mStringValue;
                 if (value.startsWith("\"")) {
@@ -528,13 +580,13 @@ public class WspTypeDecoder {
                 }
             }
             mContentParameters.put(param, value);
-            return readContentParameters(startIndex + totalRead, leftToRead - totalRead,
-                                            accumulator + totalRead);
-
-        } else {
-            mDataLength = accumulator;
-            return true;
+            index += totalRead;
+            leftToRead -= totalRead;
+            accumulator += totalRead;
         }
+
+        mDataLength = accumulator;
+        return true;
     }
 
     /**
@@ -670,7 +722,7 @@ public class WspTypeDecoder {
                     index++;
                 }
             }
-        } catch (ArrayIndexOutOfBoundsException e) {
+        } catch (IndexOutOfBoundsException e) {
             //seek application ID failed. WSP header might be corrupted
             return false;
         }
